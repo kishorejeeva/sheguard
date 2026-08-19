@@ -1,0 +1,175 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  WEARER
+  GUARDIAN
+}
+
+enum AlertStatus {
+  PENDING
+  COUNTDOWN
+  STOPPED
+  ESCALATED
+  ACTIVE
+  RESOLVED
+}
+
+enum RecipientType {
+  EMERGENCY_CONTACT
+  GUARDIAN
+  POLICE_STATION
+  POLICE_HEADQUARTERS
+}
+
+enum DeliveryStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+}
+
+model User {
+  id             String   @id @default(uuid())
+  name           String
+  phone          String   @unique
+  whatsappNumber String
+  passwordHash   String
+  role           Role
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Wearer-only relations
+  emergencyContacts EmergencyContact[]
+  bluetoothDevices  BluetoothDevice[]
+  locations         Location[]
+  alerts            Alert[]
+  voiceSettings     VoiceSetting?
+
+  // Guardian-only relation
+  guardianLocation GuardianLocation?
+
+  @@index([role])
+}
+
+model EmergencyContact {
+  id           String   @id @default(uuid())
+  wearer       User     @relation(fields: [wearerId], references: [id], onDelete: Cascade)
+  wearerId     String
+  name         String
+  phone        String
+  whatsappNumber String
+  relationship String
+  createdAt    DateTime @default(now())
+
+  @@index([wearerId])
+}
+
+model BluetoothDevice {
+  id                 String    @id @default(uuid())
+  wearer             User      @relation(fields: [wearerId], references: [id], onDelete: Cascade)
+  wearerId           String
+  deviceName         String
+  deviceIdentifier   String
+  connected          Boolean   @default(false)
+  lastConnectedAt    DateTime?
+  lastDisconnectedAt DateTime?
+
+  @@index([wearerId])
+}
+
+model Location {
+  id        String   @id @default(uuid())
+  wearer    User     @relation(fields: [wearerId], references: [id], onDelete: Cascade)
+  wearerId  String
+  latitude  Float
+  longitude Float
+  accuracy  Float?
+  address   String?
+  timestamp DateTime @default(now())
+
+  @@index([wearerId, timestamp])
+}
+
+model GuardianLocation {
+  guardian    User     @relation(fields: [guardianId], references: [id], onDelete: Cascade)
+  guardianId  String   @id
+  latitude    Float
+  longitude   Float
+  accuracy    Float?
+  updatedAt   DateTime @updatedAt
+  active      Boolean  @default(false) // explicit opt-in for nearby alerts
+}
+
+model VoiceSetting {
+  id             String   @id @default(uuid())
+  wearer         User     @relation(fields: [wearerId], references: [id], onDelete: Cascade)
+  wearerId       String   @unique
+  language       String   @default("en")
+  keyword        String   @default("help me")
+  detectionCount Int      @default(0)
+  updatedAt      DateTime @updatedAt
+}
+
+model Alert {
+  id                  String      @id @default(uuid())
+  wearer              User        @relation(fields: [wearerId], references: [id], onDelete: Cascade)
+  wearerId            String
+  status              AlertStatus @default(PENDING)
+  latitude            Float
+  longitude           Float
+  address             String?
+  message             String
+  createdAt           DateTime    @default(now())
+  stoppedAt           DateTime?
+  escalationStartedAt DateTime?
+  resolvedAt          DateTime?
+
+  recipients   AlertRecipient[]
+  locationLogs AlertLocationLog[]
+
+  @@index([wearerId, status])
+}
+
+model AlertLocationLog {
+  id        String   @id @default(uuid())
+  alert     Alert    @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  alertId   String
+  latitude  Float
+  longitude Float
+  accuracy  Float?
+  timestamp DateTime @default(now())
+
+  @@index([alertId, timestamp])
+}
+
+model AlertRecipient {
+  id             String         @id @default(uuid())
+  alert          Alert          @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  alertId        String
+  recipientType  RecipientType
+  recipientId    String? // FK to contact / guardian user / police station (nullable, resolved by type)
+  deliveryStatus DeliveryStatus @default(PENDING)
+  sentAt         DateTime?
+  deliveredAt    DateTime?
+
+  @@index([alertId])
+}
+
+model PoliceStation {
+  id           String   @id @default(uuid())
+  organization String
+  phone        String
+  email        String?
+  latitude     Float
+  longitude    Float
+  address      String?
+  isHeadquarters Boolean @default(false)
+  active       Boolean  @default(true)
+}
